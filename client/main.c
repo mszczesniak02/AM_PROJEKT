@@ -11,19 +11,81 @@
 #include "amcom_packets.h"
 
 
+#define PLAYER_NAME "White power."
+#define PLAYER_MSG "bitches come and go."
+#define PLAYER_GONE "bullshit."
+
+
+float force_move = 12.0;
+
+void AMCOM_Print(AMCOM_ObjectState * current_object, uint8_t objects_amount){
+   
+    const char* types[4] = {"PLAYA","TRANSISTOR", "SPARK", "GLUE" };
+
+    for (uint8_t i = 0; i< objects_amount; ++i){
+        
+        // set next object
+        printf("-------------------- %u -------------------\n",current_object[i].objectNo);
+        printf("O.type:   %s \n",types[current_object[i].objectType] );
+        printf("O.number: %u \n",current_object[i].objectNo );
+        printf("O.HP:     %d \n",current_object[i].hp );
+        printf("O.POSX:   %f \n",current_object[i].x );
+        printf("O.POSY:   %f \n",current_object[i].y );
+        printf("--------------------end-------------------\n");  
+    }
+}
+
 void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
     uint8_t buf[AMCOM_MAX_PACKET_SIZE];              // buffer used to serialize outgoing packets
     size_t toSend = 0;                               // size of the outgoing packet
     SOCKET ConnectSocket  = *((SOCKET*)userContext); // socket used for communication with the server
 
     switch (packet->header.type) {
-    case AMCOM_IDENTIFY_REQUEST:
-        printf("Got IDENTIFY.request. Responding with IDENTIFY.response\n");
-        AMCOM_IdentifyResponsePayload identifyResponse;
-        sprintf(identifyResponse.playerName, "mniAM player");
-        toSend = AMCOM_Serialize(AMCOM_IDENTIFY_RESPONSE, &identifyResponse, sizeof(identifyResponse), buf);
-        break;
+        case AMCOM_IDENTIFY_REQUEST:
+            printf("IDENTIFY.request. Responding with %s.\n", PLAYER_NAME);
+            AMCOM_IdentifyResponsePayload identifyResponse;
+            sprintf(identifyResponse.playerName, PLAYER_NAME);
+            toSend = AMCOM_Serialize(AMCOM_IDENTIFY_RESPONSE, &identifyResponse, sizeof(identifyResponse), buf);
+            break;
     
+        case AMCOM_NEW_GAME_REQUEST:
+            printf("NEW_GAME.request. Responding with %s.\n", PLAYER_MSG);
+            AMCOM_NewGameResponsePayload newGameResponse;
+            sprintf(newGameResponse.helloMessage, PLAYER_MSG);
+            toSend = AMCOM_Serialize(AMCOM_NEW_GAME_RESPONSE, &newGameResponse, sizeof(newGameResponse), buf);
+            break;
+        
+        case AMCOM_GAME_OVER_REQUEST:
+            printf("GAME_OVER.request. Responding with %s.\n", PLAYER_GONE);
+            AMCOM_GameOverResponsePayload gameOverResponse;
+            sprintf(gameOverResponse.endMessage, PLAYER_GONE);
+            toSend = AMCOM_Serialize(AMCOM_GAME_OVER_RESPONSE, &gameOverResponse, sizeof(gameOverResponse), buf);
+            break;
+        
+
+        case AMCOM_OBJECT_UPDATE_REQUEST:
+            printf("OBJECTS.request. Reading the data\n");
+
+            uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);//  packet size-> 12
+            AMCOM_ObjectState * current_object = (AMCOM_ObjectState *)packet->payload;
+            
+            // AMCOM_Print(current_object, objects_amount);
+
+            break;  
+
+        case AMCOM_MOVE_REQUEST:
+            printf("MOVE.request. Responding with MOVING\n");
+
+            AMCOM_MoveResponsePayload moveResponse;
+            force_move += 0.1;
+
+            moveResponse.angle = force_move;
+            
+            toSend = AMCOM_Serialize(AMCOM_MOVE_RESPONSE, &moveResponse, sizeof(moveResponse), buf);
+            break;
+
+      
+
     }
 
 	// if there is something to send back - do it
@@ -42,6 +104,12 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
 #define GAME_SERVER_PORT "2001"
 
 int main(int argc, char **argv) {
+
+
+
+
+
+
     printf("This is mniAM player. Let's eat some transistors! \n");
 
     WSADATA wsaData;
@@ -135,3 +203,5 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+
+

@@ -111,6 +111,8 @@ typedef struct {
 } AMCOM_Receiver;
 
 
+
+
 /**
  * @brief Initializes the AMCOM packet receiver.
  *
