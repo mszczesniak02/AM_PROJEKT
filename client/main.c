@@ -6,6 +6,9 @@
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
+// USER ADD
+#include <math.h>
+// USER END
 
 #include "amcom.h"
 #include "amcom_packets.h"
@@ -18,24 +21,160 @@
 
 float force_move = 12.0;
 
-void AMCOM_Print(AMCOM_ObjectState * current_object, uint8_t objects_amount){
-   
-    const char* types[4] = {"PLAYA","TRANSISTOR", "SPARK", "GLUE" };
 
-    for (uint8_t i = 0; i< objects_amount; ++i){
+typedef struct {
+    float x;
+    float y;
+} ALG_Positions_t;
+
+
+// czemu tak to działa to ja nie wiem kurwa
+typedef struct ALG_PositionsList ALG_PositionsList_t;
+
+struct ALG_PositionsList {
+    ALG_Positions_t position;
+    struct ALG_PositionsList* next;  
+};
+
+typedef struct {
+        uint8_t objects_init;
+        AMCOM_ObjectState* objects[AMCOM_MAX_OBJECT_UPDATES];
         
-        // set next object
-        printf("-------------------- %u -------------------\n",current_object[i].objectNo);
-        printf("O.type:   %s \n",types[current_object[i].objectType] );
-        printf("O.number: %u \n",current_object[i].objectNo );
-        printf("O.HP:     %d \n",current_object[i].hp );
-        printf("O.POSX:   %f \n",current_object[i].x );
-        printf("O.POSY:   %f \n",current_object[i].y );
-        printf("--------------------end-------------------\n");  
+        ALG_PositionsList_t*  players;
+        ALG_PositionsList_t*  transistors;
+        ALG_PositionsList_t*  sparks;
+        ALG_PositionsList_t*  glues;
+            
+        
+        uint8_t players_total;
+        uint8_t player_num;
+        
+}ALG_GameDetails_t;
+
+
+/*
+    struct of the object requires some way of storing the position on a map, and calculating the trejectory(angle)
+*/
+
+// USER FUNCS
+
+float ALG_GetDistance(AMCOM_ObjectState * object_origin,AMCOM_ObjectState * object_dest ){
+    // calculate distance in straight line from origin to dest, 
+    return sqrt(  
+                (object_dest->x - object_origin->x) * (object_dest->x - object_origin->x) + // (x-x0)^2
+                (object_dest->y - object_origin->y) * (object_dest->y - object_origin->y)   // (y-y0)^2
+                );
+}
+
+float ALG_GetRelativeAngle(AMCOM_ObjectState * object_origin, AMCOM_ObjectState * object_dest){// angle relative to the current player angle
+    float distance_x = object_dest->x - object_origin->x;
+    float distance_y = object_dest->y - object_origin->y;
+
+    float angle = (float)atan2(distance_y, distance_x);
+
+}
+
+void ALG_Transpose(AMCOM_ObjectState * object){ //transpose from -500/500 to 0/1000
+    object->x += 500.0f;
+    object->y += 500.0f;
+}
+
+void ALG_FillGamedata(AMCOM_NewGameRequestPayload * game_data, ALG_GameDetails_t * details){
+    details->players_total = game_data->numberOfPlayers;
+    details->player_num = game_data->playerNumber;
+    details->objects_init = 1;
+}
+void ALG_FillObjects( AMCOM_ObjectState * object, uint8_t objects_amount, ALG_GameDetails_t * details){
+    enum AMCOM_ObjectTypes{
+        PLAYER,
+        TRANSISTOR,
+        SPARK,
+        GLUE
+    };
+
+    for (uint8_t i = 0; i<objects_amount; ++i){
+        
+        ALG_Positions_t object_pos = {object->x, object->y};
+        switch(object->objectType){
+            case PLAYER:
+                //  set the linked list with player values;
+                if (details->players == NULL){
+
+                    details->players->position = object_pos;
+                    details->players->next = NULL;
+                }else{
+                    ALG_PositionsList_t * ptr = details->players;
+                    while(ptr->next != NULL){
+                        ptr =  ptr->next;
+                    }
+                    details->players->position = object_pos;
+                    details->players->next = NULL;
+                }
+                break;
+        }
+    }
+        // details->objects[i] = object; // all objects into the register
+}
+
+
+void ALG_PrintDetails(ALG_GameDetails_t * details){
+    ALG_PositionsList_t * ptr = details->players;
+    
+    printf("\nPlayers: ");
+    while(ptr!= NULL){
+        printf("%f:%f, ", ptr->position.x, ptr->position.y);
+        ptr = ptr->next;
+    }
+
+    printf("\nTransistors: ");
+    ptr = details->transistors;
+    while(ptr!= NULL){
+        printf("%f:%f, ", ptr->position.x, ptr->position.y);
+        ptr = ptr->next;
+    }
+
+        printf("\nSparks: ");
+    ptr = details->sparks;
+    while(ptr!= NULL){
+        printf("%f:%f, ", ptr->position.x, ptr->position.y);
+        ptr = ptr->next;
+    }
+
+    printf("\nGlues: ");
+    ptr = details->glues;
+    while(ptr!= NULL){
+        printf("%f:%f, ", ptr->position.x, ptr->position.y);
+        ptr = ptr->next;
     }
 }
 
+void AMCOM_Print(AMCOM_ObjectState * current_object, uint8_t objects_amount){
+   char * types[]  = {"PLAYA","TRANSISTOR", "SPARK", "GLUE"};
+        uint8_t type_num;
+
+        for (uint8_t i = 0; i< objects_amount ; ++i){
+            
+            type_num = current_object[i].objectType;
+            
+            printf("\nO.number: %u \n",current_object[i].objectNo );
+            printf("O.type:   %s \n",types[type_num] );
+            printf("O.HP:     %d \n",current_object[i].hp );
+            printf("O.POSX:   %f \n",current_object[i].x );
+            printf("O.POSY:   %f \n\n",current_object[i].y );
+            
+        }
+            
+}
+        
+
+// USER END
+
 void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
+
+    static ALG_GameDetails_t details;
+    details.objects_init = 0;
+
+
     uint8_t buf[AMCOM_MAX_PACKET_SIZE];              // buffer used to serialize outgoing packets
     size_t toSend = 0;                               // size of the outgoing packet
     SOCKET ConnectSocket  = *((SOCKET*)userContext); // socket used for communication with the server
@@ -50,6 +189,12 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
     
         case AMCOM_NEW_GAME_REQUEST:
             printf("NEW_GAME.request. Responding with %s.\n", PLAYER_MSG);
+
+            
+            AMCOM_NewGameRequestPayload * gameData =(AMCOM_NewGameRequestPayload *)packet->payload ;
+            if (details.objects_init == 0) ALG_FillGamedata(gameData, &details);
+            
+            // send player name
             AMCOM_NewGameResponsePayload newGameResponse;
             sprintf(newGameResponse.helloMessage, PLAYER_MSG);
             toSend = AMCOM_Serialize(AMCOM_NEW_GAME_RESPONSE, &newGameResponse, sizeof(newGameResponse), buf);
@@ -66,17 +211,28 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
         case AMCOM_OBJECT_UPDATE_REQUEST:
             printf("OBJECTS.request. Reading the data\n");
 
-            uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);//  packet size-> 12
+        
+
+            uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);
             AMCOM_ObjectState * current_object = (AMCOM_ObjectState *)packet->payload;
             
-            // AMCOM_Print(current_object, objects_amount);
-
+            AMCOM_Print(current_object, objects_amount);
+            
+         
+            /*
+                TO DO:
+                ANALYZE WHAT TO DO:
+                    - CHECK WHAT'S CLOSER, EAT A PLAYER(WHO CAN GET LARGER, IF CLOSER THEN NEAREST FOOD)
+                    
+            */  
+            
             break;  
 
         case AMCOM_MOVE_REQUEST:
             printf("MOVE.request. Responding with MOVING\n");
 
             AMCOM_MoveResponsePayload moveResponse;
+
             force_move += 0.1;
 
             moveResponse.angle = force_move;
@@ -107,7 +263,7 @@ int main(int argc, char **argv) {
 
 
 
-
+    
 
 
     printf("This is mniAM player. Let's eat some transistors! \n");
@@ -179,8 +335,12 @@ int main(int argc, char **argv) {
         printf("Connected to game server\n");
     }
 
+   
+
     AMCOM_Receiver amReceiver;
     AMCOM_InitReceiver(&amReceiver, amPacketHandler, &ConnectSocket);
+    
+    
 
     // Receive until the peer closes the connection
     do {
