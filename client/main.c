@@ -19,7 +19,7 @@
 #define PLAYER_GONE "bullshit."
 
 
-float force_move = 12.0;
+
 
 
 typedef struct {
@@ -31,8 +31,12 @@ typedef struct {
 
 typedef struct {
         uint8_t objects_init;
+        uint8_t objects_registered;
+
         AMCOM_ObjectState objects[AMCOM_MAX_OBJECT_UPDATES];
         
+
+
         uint8_t objects_total;
         uint8_t players_total;
         uint8_t player_num;
@@ -47,15 +51,15 @@ static ALG_GameDetails_t *  ALG_GameDetails = NULL; // global register of game d
 
 // USER FUNCS
 
-void ALG_GameDetailsInit(ALG_GameDetails_t * details){
+void ALG_GameDetailsInit(){
 
-
-    details->objects_init   = 0;
-    details->objects_total  = 0;
-    details->player_num     = 0;
-    details->players_total  = 0;
+    ALG_GameDetails->objects_registered     = 0;
+    ALG_GameDetails->objects_init           = 0;
+    ALG_GameDetails->objects_total          = 0;
+    ALG_GameDetails->player_num             = 0;
+    ALG_GameDetails->players_total          = 0;
     
-    memset(details->objects, 0, sizeof(details->objects));
+    memset(ALG_GameDetails->objects, 0, sizeof(ALG_GameDetails->objects));
 };
 
 float ALG_GetDistance(AMCOM_ObjectState * object_origin,AMCOM_ObjectState * object_dest ){
@@ -71,7 +75,15 @@ float ALG_GetRelativeAngle(AMCOM_ObjectState * object_origin, AMCOM_ObjectState 
     float distance_y = object_dest->y - object_origin->y;
 
     float angle = (float)atan2(distance_y, distance_x);
+    // angle  = (angle * 180.0f / 3.14f);
 
+    
+    //  cast into int to get range of 0-360deg, then add the decimal values.
+    // float decimal = angle -  (int)angle; 
+    
+    // angle = ((int)angle + 360) % 360;
+
+    return angle ;
 }
 
 void ALG_Transpose(AMCOM_ObjectState * object){ //transpose from -500/500 to 0/1000
@@ -87,11 +99,13 @@ void ALG_FillGamedata(AMCOM_NewGameRequestPayload * game_data){
 
 void ALG_FillObjects(AMCOM_ObjectState * object, uint8_t object_amount){
     for(uint8_t i = 0 ; i<object_amount; ++i){
-        ALG_GameDetails->objects[i] = *object;
+        ALG_GameDetails->objects[i] = object[i];
+        ALG_Transpose(&ALG_GameDetails->objects[i]);
+
     }
     ALG_GameDetails->objects_total = object_amount;
+    ALG_GameDetails->objects_registered = 1;
 }
-
 
 void ALG_PrintObjects(void){
     char * types[]  = {"PLAYER","TRANSISTOR", "SPARK", "GLUE"};
@@ -103,7 +117,7 @@ void ALG_PrintObjects(void){
 
             type_num = ALG_GameDetails->objects[i].objectType;
             
-            printf("\nO.number: %ll u \n",ALG_GameDetails->objects[i].objectNo );
+            printf("\nO.number: %u \n",ALG_GameDetails->objects[i].objectNo );
             printf("O.type:   %s \n",types[type_num] );
             printf("O.HP:     %d \n",ALG_GameDetails->objects[i].hp );
             printf("O.POSX:   %f \n",ALG_GameDetails->objects[i].x );
@@ -112,6 +126,48 @@ void ALG_PrintObjects(void){
         }
 }
 
+AMCOM_ObjectState * ALG_FindPlayer(void) {
+    AMCOM_ObjectState * ptr = ALG_GameDetails->objects;
+    
+    for (uint8_t i = 0; i < ALG_GameDetails->objects_total; ++i) {
+        if(ptr->objectType == 0) {  // Sprawdź czy to jest PLAYER (typ 0)
+            return ptr;
+        }
+        ptr++;
+    }
+    return NULL;  // Jeśli nie znaleziono gracza
+}
+AMCOM_ObjectState* ALG_FindObject(uint8_t object_type){
+    AMCOM_ObjectState * ptr = ALG_GameDetails->objects;
+    
+    // uint16_t number = (uint16_t)ALG_GameDetails->;
+    
+    for (uint8_t i = 0 ; i < ALG_GameDetails->objects_total; ++i){
+        if(ptr->objectNo == object_type){
+            return ptr;
+        }else{
+            ptr++;
+        }
+    }
+    return ptr;
+}
+
+AMCOM_ObjectState * ALG_FindNearestObject(uint8_t object_type){
+    AMCOM_ObjectState * player = ALG_FindPlayer();
+    AMCOM_ObjectState * nearest_object = NULL;
+    float min_distance = 10000.0f;
+    for (uint8_t i = 0; i< ALG_GameDetails->objects_total; ++i){
+        AMCOM_ObjectState * current_object = &ALG_GameDetails->objects[i];
+        if (current_object->objectType ==object_type ) {
+            float distance = ALG_GetDistance(player,current_object);
+            if( distance < min_distance){
+                min_distance = distance;
+                nearest_object  = current_object;
+            }
+        }
+    }
+    return nearest_object;
+}
 
 
 void AMCOM_Print(AMCOM_ObjectState * current_object, uint8_t objects_amount){
@@ -178,9 +234,9 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);
             AMCOM_ObjectState * current_object = (AMCOM_ObjectState *)packet->payload;
             
-            ALG_FillObjects(current_object, objects_amount);
-            ALG_PrintObjects();
+            if (ALG_GameDetails->objects_registered == 0) ALG_FillObjects(current_object, objects_amount);
             
+            // ALG_PrintObjects();
             // AMCOM_Print(current_object, objects_amount);
          
             /*
@@ -196,10 +252,15 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             printf("MOVE.request. Responding with MOVING\n");
 
             AMCOM_MoveResponsePayload moveResponse;
+            
+            AMCOM_ObjectState * player =  ALG_FindPlayer();
+            AMCOM_ObjectState * target = ALG_FindNearestObject(1);
+            if(target != NULL){
+                moveResponse.angle = ALG_GetRelativeAngle(player, target  );
+            }else{
+                // moveResponse.angle = 1.4f;
+            }
 
-            force_move += 0.1;
-
-            moveResponse.angle = force_move;
             
             toSend = AMCOM_Serialize(AMCOM_MOVE_RESPONSE, &moveResponse, sizeof(moveResponse), buf);
             break;
