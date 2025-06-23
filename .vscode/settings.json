@@ -2,6 +2,13 @@
     "files.associations": {
         "*.dbclient-js": "javascript",
         "windows.h": "c",
-        "*.txt": "c"
+        "*.txt": "c",
+        "amcom.h": "c",
+        "stdlib.h": "c",
+        "amcom_packets.h": "c",
+        "node.h": "c",
+        "game_details.h": "c",
+        "alg.h": "c",
+        "stdio.h": "c"
     }
 }
