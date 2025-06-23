@@ -8,9 +8,29 @@ extern GameDetails_t* GameDetails;
 void OBJ_FillObjects(AMCOM_ObjectState * object, uint8_t object_amount){
 
     for(uint8_t i = 0 ; i<object_amount; ++i){
-        GameDetails->objects[i] = object[i];
+        GameDetails_t * p = GameDetails;
+        p->objects[i] = object[i];
+
+        switch(p->objects[i].objectType){
+            case 0: // players
+                 p->players_c++;
+                pushNode(&p->head_p, &p->objects[i]);
+                break;
+            case 1:
+                p->transistors_c++;
+                pushNode(&p->head_t, &p->objects[i]);
+                break;
+            case 2:
+                p->sparks_c++;
+                pushNode(&p->head_s, &p->objects[i]);
+                break;
+            case 3:
+                p->glue_c++;
+                pushNode(&p->head_g, &p->objects[i]);
+                break;
+        } 
     }
-    GameDetails->objects_total = object_amount - 1;
+    GameDetails->objects_total = object_amount ;
 }
 
 
@@ -26,6 +46,8 @@ void OBJ_PacketState(void){
 
 void OBJ_AssignObjects(void){
     GameDetails_t * p = GameDetails; 
+    // do not clear the stacks, they keep the objects during the whole game.
+
 
     GameDetails->players_c = 0;
     GameDetails->transistors_c = 0;
@@ -65,13 +87,3 @@ void OBJ_PrintObject(AMCOM_ObjectState * o){
 }
 
 
-void OBJ_PrintStacks(uint8_t count, ...){
-    va_list args;
-    va_start(args, count);
-    
-    for (int i = 0; i < count; ++i) {
-        Node_t **head = va_arg(args, Node_t **);
-        printStack(head);
-    }
-    va_end(args);
-}

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "node.h"
 
 
@@ -26,11 +27,7 @@ void pushNode(Node_t ** head, AMCOM_ObjectState * object){
     }
 }
 
-Node_t * popNode(Node_t ** head){
-    Node_t* t = *head;
-    *head = (*head)->next;
-    return t;
-}
+
 void deleteHeadNode(Node_t ** head){
     Node_t* t = *head;
     *head = (*head)->next;
@@ -48,16 +45,7 @@ void deleteAllNode(Node_t **head) {
     *head = NULL; // <- to jest kluczowe!
 }
 
-void deleteAllNodes(uint8_t count,...){
-    va_list args;
-    va_start(args, count);
-    
-    for (int i = 0; i < count; ++i) {
-        Node_t **head = va_arg(args, Node_t **);
-        deleteAllNode(head);
-    }
-    va_end(args);
-};
+
 
 
 

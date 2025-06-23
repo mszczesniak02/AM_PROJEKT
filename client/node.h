@@ -43,10 +43,7 @@ void deleteHeadNode(Node_t ** head);
 void deleteAllNode(Node_t **head);
 
 
-/*
-    Delete all stack/node and free memory
-*/
-void deleteAllNodes(uint8_t count,...);
+
 
 /*
     quick print for debug

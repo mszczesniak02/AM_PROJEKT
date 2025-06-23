@@ -20,7 +20,7 @@ void GameDetailsInit(GameDetails_t * details){
     details->head_s = NULL; // stack, holds the objects 
     details->head_g = NULL; // stack, holds the objects 
 
-    memset(details->objects, 0, sizeof(details->objects));
+    // memset(details->objects, 0, sizeof(details->objects));
 };
 
 extern GameDetails_t * GameDetails;
