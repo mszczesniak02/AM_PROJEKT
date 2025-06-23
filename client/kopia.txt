@@ -27,79 +27,21 @@ float force_move = 12.0;
 
 
 
-typedef struct node{
-    AMCOM_ObjectState * data;
-    struct node* next;
-}Node_t;
 
 
-Node_t * head_p = NULL;
-Node_t * head_t = NULL;
-Node_t * head_s = NULL;
-Node_t * head_g = NULL;
-
-Node_t* createNode(AMCOM_ObjectState * object){
-    Node_t * n = (Node_t *)malloc(sizeof(Node_t));
-    if(n == NULL){
-        printf("ERROR!\n");
-        return NULL;
-    }
-    n->data = object;
-    n->next = NULL;
-    return n;
-}
-
-void pushNode(Node_t ** head, AMCOM_ObjectState * object){
-    Node_t* n = createNode(object);
-
-    // if head empty
-    if (*head == NULL){
-        *head = n;
-    }else{
-        n->next = (*head);
-        *head = n;
-
-    }
-}
-
-Node_t * popNode(Node_t ** head){
-    Node_t* t = *head;
-    *head = (*head)->next;
-    return t;
-}
-void deleteHeadNode(Node_t ** head){
-    Node_t* t = *head;
-    *head = (*head)->next;
-    free(t);
-}
-
-void deleteAllNodes(Node_t **head) {
-    Node_t *current = *head;
-    Node_t *next;
-    while (current != NULL) {
-        next = current->next;
-        free(current);
-        current = next;
-    }
-    *head = NULL; // <- to jest kluczowe!
-}
 
 
-void printStack(Node_t** stack){
-    Node_t* temp = *stack;
-    while (temp != NULL) {
-        printf("\n:)%u, %u :)\n ", temp->data->objectType, temp->data->objectNo);
-        temp = temp->next;
-    }
-    printf("\n");
-}
 
 
 typedef struct {
 
     AMCOM_ObjectState objects[AMCOM_MAX_OBJECTS];
 
-  
+    AMCOM_ObjectState*     players[AMCOM_MAX_PLAYERS];
+    AMCOM_ObjectState* transistors[AMCOM_MAX_STATIC_OBJECTS];
+    AMCOM_ObjectState*      sparks[AMCOM_MAX_STATIC_OBJECTS];
+    AMCOM_ObjectState*       glues[AMCOM_MAX_STATIC_OBJECTS];
+
     uint8_t players_c, transistors_c, sparks_c, glue_c; // x_c -> count
 
     uint8_t objects_total;
@@ -132,6 +74,7 @@ void ALG_GameDetailsInit(ALG_GameDetails_t * details){
    
 
 };
+
 
 void ALG_Free(ALG_GameDetails_t * details){
  
@@ -171,35 +114,43 @@ void ALG_FillObjects(AMCOM_ObjectState * object, uint8_t object_amount){
     for(uint8_t i = 0 ; i<object_amount; ++i){
         ALG_GameDetails->objects[i] = object[i];
     }
-    ALG_GameDetails->objects_total = object_amount - 1;
+    ALG_GameDetails->objects_total = object_amount;
 }
 
 
 void ALG_AssignObjects(void){
-    ALG_GameDetails_t * p = ALG_GameDetails; 
 
-    ALG_GameDetails->players_c = 0;
-    ALG_GameDetails->transistors_c = 0;
-    ALG_GameDetails->sparks_c = 0;
-    ALG_GameDetails->glue_c= 0;
-   
+    ALG_GameDetails_t * p = ALG_GameDetails; 
+    p->players_c = 0;
+    p->transistors_c = 0;
+    p->sparks_c = 0;
+    p->glue_c= 0;
+
     for (uint8_t i = 0; i < p->objects_total; ++i){
        
         switch(p->objects[i].objectType){
             case 0: // players
-                pushNode(&head_p, &p->objects[i]);
+                p->players[p->players_c++] = &p->objects[i];
+              
                 break;
             case 1:
-                pushNode(&head_t, &p->objects[i]);
-                break;
+                p->transistors[p->transistors_c++] = &p->objects[i];
+           
+
+            break;
             case 2:
-                pushNode(&head_s, &p->objects[i]);
-                break;
+                p->sparks[p->sparks_c++] = &p->objects[i];
+           
+            break;
             case 3:
-                pushNode(&head_g, &p->objects[i]);
+                p->glues[p->glue_c++] = &p->objects[i];
+           
                 break;
         } 
+        
     }
+
+   
 }
 
 
@@ -281,11 +232,10 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
     
         case AMCOM_NEW_GAME_REQUEST:
             printf("NEW_GAME.request. Responding with %s.\n", PLAYER_MSG);
-            ALG_GameDetailsInit(ALG_GameDetails);
+
             AMCOM_NewGameRequestPayload * gameData =(AMCOM_NewGameRequestPayload *)packet->payload ;
             if (ALG_GameDetails->objects == 0) ALG_FillGamedata(gameData);
 
-          
 
             // send player name
             AMCOM_NewGameResponsePayload newGameResponse;
@@ -294,27 +244,10 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             break;
         
         case AMCOM_GAME_OVER_REQUEST:
-
-            deleteAllNodes(&head_p);
-            deleteAllNodes(&head_t);
-            deleteAllNodes(&head_s);
-            deleteAllNodes(&head_g);
-
             printf("GAME_OVER.request. Responding with %s.\n", PLAYER_GONE);
             AMCOM_GameOverResponsePayload gameOverResponse;
             sprintf(gameOverResponse.endMessage, PLAYER_GONE);
-
-            
-            
-
             toSend = AMCOM_Serialize(AMCOM_GAME_OVER_RESPONSE, &gameOverResponse, sizeof(gameOverResponse), buf);
-
-            // clear the buffers with data
-            
-            
-           
-
-
             break;
         
 
@@ -326,17 +259,10 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);
             AMCOM_ObjectState * current_objects = (AMCOM_ObjectState *)packet->payload;
             
-        
-               
-
             ALG_FillObjects(current_objects, objects_amount);
             ALG_AssignObjects();
-        
             ALG_PrintObjects();
-        
             temp_print();
-            printStack(&head_p);
-            
          
             
             break;  
@@ -346,9 +272,9 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
 
             AMCOM_MoveResponsePayload moveResponse;
 
-            // force_move += 0.1;
+            force_move += 0.1;
 
-            moveResponse.angle = 0.5f;
+            moveResponse.angle = force_move;
             
             toSend = AMCOM_Serialize(AMCOM_MOVE_RESPONSE, &moveResponse, sizeof(moveResponse), buf);
             break;
