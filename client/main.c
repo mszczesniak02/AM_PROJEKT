@@ -9,7 +9,7 @@
 
 #include "amcom.h"
 #include "amcom_packets.h"
-
+#include <math.h>
 
 #define PLAYER_NAME "White power."
 #define PLAYER_MSG "bitches come and go."
@@ -138,9 +138,7 @@ uint16_t findObject( uint8_t type, uint16_t num){
     return 255;
 }
 
-uint16_t findClosest(uint8_t typeOrigin, uint8_t typeDest, uint16_t numOrigin, uint16_t numDest){
-    
-}
+
 
 void fetchObjects(AMCOM_ObjectState * state, uint8_t count){
     for(uint8_t i = 0; i< count; ++i){
@@ -157,7 +155,93 @@ void fetchObjects(AMCOM_ObjectState * state, uint8_t count){
 }
 
 
+float ALG_GetDistance(AMCOM_ObjectState * object_origin,AMCOM_ObjectState * object_dest ){
+    // calculate distance in straight line from origin to dest, 
+    return sqrt(  
+                (object_dest->x - object_origin->x) * (object_dest->x - object_origin->x) + // (x-x0)^2
+                (object_dest->y - object_origin->y) * (object_dest->y - object_origin->y)   // (y-y0)^2
+                );
+}
 
+float ALG_GetRelativeAngle(AMCOM_ObjectState * object_origin, AMCOM_ObjectState * object_dest){// angle relative to the current player angle
+    float distance_x = object_dest->x - object_origin->x;
+    float distance_y = object_dest->y - object_origin->y;
+
+    float angle = (float)atan2(distance_y, distance_x);
+
+}
+
+void ALG_Transpose(AMCOM_ObjectState * object){ //transpose from -500/500 to 0/1000
+    object->x += 500.0f;
+    object->y += 500.0f;
+}
+
+
+
+uint16_t findClosest(uint8_t typeOrigin, uint8_t typeDest, uint16_t numOrigin) {
+    ll_t* originList = NULL;
+    AMCOM_ObjectState* originObject = NULL;
+    uint16_t closestIndex = 255;
+    float closestDistance = 2000.0f;
+
+    // Find the origin object
+    uint16_t originIndex = findObject(typeOrigin, numOrigin);
+    if (originIndex == 255) {
+        return 255; // Origin object not found
+    }
+
+    // Get the origin object
+    switch (typeOrigin) {
+        case 0: originList = head_p; break;
+        case 1: originList = head_t; break;
+        case 2: originList = head_s; break;
+        case 3: originList = head_g; break;
+        default: return 255; // Unknown origin type
+    }
+    
+    int i = 0;
+    ll_t* current = originList;
+    while(current != NULL){
+        if(i == originIndex){
+            originObject = current->data;
+            break;
+        }
+        current = current->next;
+        i++;
+    }
+
+    ll_t* destList = NULL;
+    // Select the destination list
+    switch (typeDest) {
+        case 0: destList = head_p; break;
+        case 1: destList = head_t; break;
+        case 2: destList = head_s; break;
+        case 3: destList = head_g; break;
+        default: return 255; // Unknown destination type
+    }
+
+    // Find the closest object in the destination list
+    uint16_t currentIndex = 0;
+    current = destList;
+    while (current != NULL) {
+        if (current->data != NULL) {
+            float distance = ALG_GetDistance(originObject, current->data);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestIndex = currentIndex;
+            }
+        }
+        current = current->next;
+        currentIndex++;
+    }
+
+    // If no destination object was found, return an error
+    if (closestIndex == 255) {
+        return 255;
+    }
+    printf("distance:%f\n", closestDistance );
+    return closestIndex; // Index of the closest object
+}
 
 
 void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
@@ -220,9 +304,10 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             // }else{
             //     printf("\nNie naleziony!: %u\n",x);
                 
-            }
+            // }
             // AMCOM_Print(current_object, objects_amount);
 
+            printf("\n FOUND closest: %lu\n", findClosest(0, 1, 0));
             break;  
 
         case AMCOM_MOVE_REQUEST:
