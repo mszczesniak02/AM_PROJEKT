@@ -2,6 +2,7 @@
     "files.associations": {
         "*.dbclient-js": "javascript",
         "windows.h": "c",
+<<<<<<< HEAD
         "*.txt": "c",
         "amcom.h": "c",
         "stdlib.h": "c",
@@ -9,6 +10,8 @@
         "node.h": "c",
         "game_details.h": "c",
         "alg.h": "c",
+=======
+>>>>>>> main
         "stdio.h": "c"
     }
 }
