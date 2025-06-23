@@ -64,12 +64,10 @@ ll_t * createNode(AMCOM_ObjectState * o){
 void pushNode(ll_t** head, AMCOM_ObjectState * o ){
     
     ll_t* node = createNode(o);
-    
 
     node->next = *head;
     *head = node;
     
-
 }
 
 void printNode(ll_t** head){
@@ -100,22 +98,66 @@ ll_t* head_s = NULL;
 ll_t* head_g = NULL;
 
 
-void getObjects(AMCOM_ObjectState * state, uint8_t count){
+typedef struct GameDetails{
+    uint8_t total_players;
+    uint8_t my_player;
+    uint8_t current_angle;
+
+}GameDetails_t;
+
+
+GameDetails_t * GameDetails = NULL;
+void GameDetailsInit(void){
+    GameDetails->current_angle = 0;
+    GameDetails->my_player = 0;
+    GameDetails->total_players = 0;
+}
+
+
+
+
+uint16_t findObject( uint8_t type, uint16_t num){
+    ll_t* p = NULL;
+    uint16_t count = 0;
+
+    switch(type){
+        case 0: p = head_p; break;
+        case 1: p = head_t; break;
+        case 2: p = head_s; break;
+        case 3: p = head_g; break;
+    }
+    
+    while(p != NULL){
+        
+        if( p->data->objectType == type &&  p->data->objectNo == num){
+            return count;
+        }
+        p = p->next;
+        count++;
+    }
+    return 255;
+}
+
+uint16_t findClosest(uint8_t typeOrigin, uint8_t typeDest, uint16_t numOrigin, uint16_t numDest){
+    
+}
+
+void fetchObjects(AMCOM_ObjectState * state, uint8_t count){
     for(uint8_t i = 0; i< count; ++i){
         ll_t* p = NULL;
         switch(state[i].objectType){
-            case 0: p = head_p; break;
-            case 1: p = head_t; break;
-            case 2: p = head_s; break;
-            case 3: p = head_g; break;
+            case 0: p = head_p; pushNode(&head_p, &state[i]); break;
+            case 1: p = head_t; pushNode(&head_t, &state[i]); break;
+            case 2: p = head_s; pushNode(&head_s, &state[i]); break;
+            case 3: p = head_g; pushNode(&head_g, &state[i]); break;
         }
-        pushNode(&p, &state[i]);
-        printNode(&p);
-
         
+        // printNode(&p);   
     }
-
 }
+
+
+
 
 
 void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
@@ -135,6 +177,15 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             printf("NEW_GAME.request. Responding with %s.\n", PLAYER_MSG);
             AMCOM_NewGameResponsePayload newGameResponse;
             sprintf(newGameResponse.helloMessage, PLAYER_MSG);
+
+            
+            // uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);//  packet size-> 12
+            AMCOM_NewGameRequestPayload * ptr = (AMCOM_NewGameRequestPayload  *)packet->payload;
+            
+            GameDetails->my_player = ptr->playerNumber;
+            GameDetails->total_players = ptr->numberOfPlayers;
+
+
             toSend = AMCOM_Serialize(AMCOM_NEW_GAME_RESPONSE, &newGameResponse, sizeof(newGameResponse), buf);
             break;
         
@@ -161,9 +212,15 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);//  packet size-> 12
             AMCOM_ObjectState * current_object = (AMCOM_ObjectState *)packet->payload;
             
-            getObjects(current_object, objects_amount);
+            fetchObjects(current_object, objects_amount);
 
-
+            // uint16_t x = 255;
+            // if( (x = findObject( (uint8_t)1,(uint16_t)5)) != (uint16_t)255){
+            //     printf("\nZnaleziony!: %u\n",x);
+            // }else{
+            //     printf("\nNie naleziony!: %u\n",x);
+                
+            }
             // AMCOM_Print(current_object, objects_amount);
 
             break;  
@@ -200,6 +257,8 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
 
 int main(int argc, char **argv) {
 
+    GameDetails = (GameDetails_t*)malloc(sizeof(GameDetails_t));
+    GameDetailsInit();
 
 
 
