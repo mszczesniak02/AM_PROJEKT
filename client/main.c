@@ -35,6 +35,89 @@ void AMCOM_Print(AMCOM_ObjectState * current_object, uint8_t objects_amount){
     }
 }
 
+void PrintObject(AMCOM_ObjectState * o){
+    if(o){
+        printf("O.type:   %u \n",o->objectType );
+        printf("O.number: %lu \n",o->objectNo );
+        printf("O.HP:     %d \n",o->hp );
+        printf("O.POSX:   %f \n",o->x );
+        printf("O.POSY:   %f \n",o->y );
+    }
+    else{
+        printf("ERROR! not reading the NULL, dont be stupid\n");
+    }
+}
+
+typedef struct node{
+    AMCOM_ObjectState * data;
+    struct node * next;
+}ll_t;
+
+
+
+ll_t * createNode(AMCOM_ObjectState * o){
+    ll_t* node = (ll_t* )malloc(sizeof(ll_t));
+    node->data = o;
+    node->next = NULL;
+    return node;
+}
+void pushNode(ll_t** head, AMCOM_ObjectState * o ){
+    
+    ll_t* node = createNode(o);
+    
+
+    node->next = *head;
+    *head = node;
+    
+
+}
+
+void printNode(ll_t** head){
+    ll_t* current = *head;
+    while(current != NULL){
+
+        PrintObject(current->data);
+        current = current->next;
+        
+    }
+   
+}
+
+void clearList(ll_t ** head){
+    ll_t* current =  *head;
+    ll_t* next;
+    while(current != NULL){
+        next = current->next;
+        free(current);
+        current=next;
+    }    
+    *head = NULL;
+}
+
+ll_t* head_p = NULL;
+ll_t* head_t = NULL;
+ll_t* head_s = NULL;
+ll_t* head_g = NULL;
+
+
+void getObjects(AMCOM_ObjectState * state, uint8_t count){
+    for(uint8_t i = 0; i< count; ++i){
+        ll_t* p = NULL;
+        switch(state[i].objectType){
+            case 0: p = head_p; break;
+            case 1: p = head_t; break;
+            case 2: p = head_s; break;
+            case 3: p = head_g; break;
+        }
+        pushNode(&p, &state[i]);
+        printNode(&p);
+
+        
+    }
+
+}
+
+
 void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
     uint8_t buf[AMCOM_MAX_PACKET_SIZE];              // buffer used to serialize outgoing packets
     size_t toSend = 0;                               // size of the outgoing packet
@@ -59,6 +142,15 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             printf("GAME_OVER.request. Responding with %s.\n", PLAYER_GONE);
             AMCOM_GameOverResponsePayload gameOverResponse;
             sprintf(gameOverResponse.endMessage, PLAYER_GONE);
+            
+            
+            clearList(&head_p);
+            clearList(&head_t);
+            clearList(&head_s);
+            clearList(&head_g);
+
+            
+            
             toSend = AMCOM_Serialize(AMCOM_GAME_OVER_RESPONSE, &gameOverResponse, sizeof(gameOverResponse), buf);
             break;
         
@@ -69,6 +161,9 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);//  packet size-> 12
             AMCOM_ObjectState * current_object = (AMCOM_ObjectState *)packet->payload;
             
+            getObjects(current_object, objects_amount);
+
+
             // AMCOM_Print(current_object, objects_amount);
 
             break;  
