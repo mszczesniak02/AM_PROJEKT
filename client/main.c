@@ -6,6 +6,7 @@
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
+// #include <stdlib.h>
 
 #include "amcom.h"
 #include "amcom_packets.h"
@@ -14,6 +15,8 @@
 #define PLAYER_NAME "White power."
 #define PLAYER_MSG "bitches come and go."
 #define PLAYER_GONE "bullshit."
+#define EPSILON 10.0f
+#define EPSILON_ANGLE 0.1745 // 10 deg, 10 * 180 / PI = 0.1745
 
 
 float force_move = 12.0;
@@ -37,11 +40,14 @@ void AMCOM_Print(AMCOM_ObjectState * current_object, uint8_t objects_amount){
 
 void PrintObject(AMCOM_ObjectState * o){
     if(o){
+        printf("-------obj start----------\n");
         printf("O.type:   %u \n",o->objectType );
         printf("O.number: %lu \n",o->objectNo );
         printf("O.HP:     %d \n",o->hp );
         printf("O.POSX:   %f \n",o->x );
         printf("O.POSY:   %f \n",o->y );
+        printf("-------obj end----------\n");
+
     }
     else{
         printf("ERROR! not reading the NULL, dont be stupid\n");
@@ -57,14 +63,22 @@ typedef struct node{
 
 ll_t * createNode(AMCOM_ObjectState * o){
     ll_t* node = (ll_t* )malloc(sizeof(ll_t));
-    node->data = o;
+    
+    assert(node);
+
+    node->data = (AMCOM_ObjectState*)malloc(sizeof(AMCOM_ObjectState));
+    
+    assert(node->data);
+
+    memcpy(node->data, o, sizeof(AMCOM_ObjectState));
+    
+    
     node->next = NULL;
     return node;
 }
 void pushNode(ll_t** head, AMCOM_ObjectState * o ){
     
     ll_t* node = createNode(o);
-
     node->next = *head;
     *head = node;
     
@@ -76,7 +90,7 @@ void printNode(ll_t** head){
 
         PrintObject(current->data);
         current = current->next;
-        
+
     }
    
 }
@@ -86,6 +100,8 @@ void clearList(ll_t ** head){
     ll_t* next;
     while(current != NULL){
         next = current->next;
+            if ( current->data != NULL) free(current->data); // to psuje mi z jakiegos powodu 
+        
         free(current);
         current=next;
     }    
@@ -98,27 +114,63 @@ ll_t* head_s = NULL;
 ll_t* head_g = NULL;
 
 
+typedef struct next_stop{
+    float x;
+    float y;
+    float dist;
+    float angle;
+} Next_stop_t;
+
 typedef struct GameDetails{
     uint8_t total_players;
     uint8_t my_player;
     uint8_t current_angle;
+    Next_stop_t next_stop;
+
+    uint8_t next;
 
 }GameDetails_t;
 
 
 GameDetails_t * GameDetails = NULL;
+
 void GameDetailsInit(void){
     GameDetails->current_angle = 0;
     GameDetails->my_player = 0;
     GameDetails->total_players = 0;
+    GameDetails->next_stop.angle = 0.0f;
+    GameDetails->next_stop.dist = 0.0f;
+    GameDetails->next_stop.x = 0.0f;
+    GameDetails->next_stop.y = 0.0f;
+    GameDetails->next = 0;
+
 }
 
 
 
 
-uint16_t findObject( uint8_t type, uint16_t num){
+
+/*
+    1 - eat the nearest food in vacinity, defined by close distance to each other(maybe like 50/100 ), then go after the player with the least health to eat him if I am bigger by a factor of 2/3/4...
+
+    Analyze the vacinities once, 
+
+    przejdz przez wszystkie obiekty do zjedzenia, pakiety powinny posiadac wielkości dwie więcej, angle_to_nearest food, distance to nearest food
+    order by the closest distances and distace to the player
+    -> somehow get the order of which to go after, example -> 1 - 8- 3 -5 -6, be able to navigate them knowing that theyre ordered from 12 to 0. (packet size and ye).
+
+    -> player distance fast calc to get their position and to EAT THEM MFs.
+
+
+
+    funcs: calc distace, calc angle, sort by distance, 
+
+
+
+*/
+
+AMCOM_ObjectState * findObject( uint8_t type, uint16_t num){
     ll_t* p = NULL;
-    uint16_t count = 0;
 
     switch(type){
         case 0: p = head_p; break;
@@ -126,16 +178,15 @@ uint16_t findObject( uint8_t type, uint16_t num){
         case 2: p = head_s; break;
         case 3: p = head_g; break;
     }
-    
+
     while(p != NULL){
         
         if( p->data->objectType == type &&  p->data->objectNo == num){
-            return count;
+            return p->data;
         }
         p = p->next;
-        count++;
     }
-    return 255;
+    return NULL;
 }
 
 
@@ -149,99 +200,69 @@ void fetchObjects(AMCOM_ObjectState * state, uint8_t count){
             case 2: p = head_s; pushNode(&head_s, &state[i]); break;
             case 3: p = head_g; pushNode(&head_g, &state[i]); break;
         }
-        
+        // PrintObject(&state[i]);
         // printNode(&p);   
     }
 }
 
+void ALG_Transpose(AMCOM_ObjectState * object, float * x, float * y){ //transpose from -500/500 to 0/1000
+    *x = object->x + 500.0f;
+    *y = object->y + 500.0f;
+}
 
 float ALG_GetDistance(AMCOM_ObjectState * object_origin,AMCOM_ObjectState * object_dest ){
+    float xo = 0.0f, yo = 0.0f;
+    float xd = 0.0f, yd = 0.0f;
+
+    ALG_Transpose(object_origin, &xo, &yo);
+    ALG_Transpose(object_dest, &xd, &yd);
+
     // calculate distance in straight line from origin to dest, 
     return sqrt(  
-                (object_dest->x - object_origin->x) * (object_dest->x - object_origin->x) + // (x-x0)^2
-                (object_dest->y - object_origin->y) * (object_dest->y - object_origin->y)   // (y-y0)^2
+                (xd - xo) * (xd - xo) + // (x_dest-x_origin)^2
+                (yd - yo) * (yd - yo)   
                 );
 }
 
-float ALG_GetRelativeAngle(AMCOM_ObjectState * object_origin, AMCOM_ObjectState * object_dest){// angle relative to the current player angle
+float ALG_GetAbsoluteAngle(AMCOM_ObjectState * object_origin, AMCOM_ObjectState * object_dest){
+
     float distance_x = object_dest->x - object_origin->x;
     float distance_y = object_dest->y - object_origin->y;
 
-    float angle = (float)atan2(distance_y, distance_x);
-
-}
-
-void ALG_Transpose(AMCOM_ObjectState * object){ //transpose from -500/500 to 0/1000
-    object->x += 500.0f;
-    object->y += 500.0f;
+    float angle = atan2f(distance_y, distance_x);
+    return angle;
 }
 
 
 
-uint16_t findClosest(uint8_t typeOrigin, uint8_t typeDest, uint16_t numOrigin) {
-    ll_t* originList = NULL;
-    AMCOM_ObjectState* originObject = NULL;
-    uint16_t closestIndex = 255;
-    float closestDistance = 2000.0f;
+float ALG_Move(AMCOM_ObjectState * player, AMCOM_ObjectState * food){
+    float epsilon = 5.0f;
 
-    // Find the origin object
-    uint16_t originIndex = findObject(typeOrigin, numOrigin);
-    if (originIndex == 255) {
-        return 255; // Origin object not found
+    if(player && food){
+        float angle     = ALG_GetAbsoluteAngle( player,food );
+        float distance  = ALG_GetDistance( player, food );
+        printf("Current (d,phi) to food: (%f, %f)\n", distance, angle );
+        return angle;
     }
-
-    // Get the origin object
-    switch (typeOrigin) {
-        case 0: originList = head_p; break;
-        case 1: originList = head_t; break;
-        case 2: originList = head_s; break;
-        case 3: originList = head_g; break;
-        default: return 255; // Unknown origin type
-    }
-    
-    int i = 0;
-    ll_t* current = originList;
-    while(current != NULL){
-        if(i == originIndex){
-            originObject = current->data;
-            break;
-        }
-        current = current->next;
-        i++;
-    }
-
-    ll_t* destList = NULL;
-    // Select the destination list
-    switch (typeDest) {
-        case 0: destList = head_p; break;
-        case 1: destList = head_t; break;
-        case 2: destList = head_s; break;
-        case 3: destList = head_g; break;
-        default: return 255; // Unknown destination type
-    }
-
-    // Find the closest object in the destination list
-    uint16_t currentIndex = 0;
-    current = destList;
-    while (current != NULL) {
-        if (current->data != NULL) {
-            float distance = ALG_GetDistance(originObject, current->data);
-            if (distance < closestDistance) {
-                closestDistance = distance;
-                closestIndex = currentIndex;
-            }
-        }
-        current = current->next;
-        currentIndex++;
-    }
-
-    // If no destination object was found, return an error
-    if (closestIndex == 255) {
-        return 255;
-    }
-    printf("distance:%f\n", closestDistance );
-    return closestIndex; // Index of the closest object
+    return -1.0f;
 }
+
+uint8_t ALG_SparkInWay(AMCOM_ObjectState * player, float food_angle, float food_distance){
+    ll_t * sparks = head_s;
+
+    while(sparks != NULL){
+        
+        float obsticle_angle = ALG_GetAbsoluteAngle(player, sparks->data);
+        float obsticle_distance = ALG_GetDistance(player, sparks->data);
+
+        if ( fabsf(food_angle -  obsticle_angle  ) < EPSILON_ANGLE ){
+            if (obsticle_distance < food_distance)  return 1; // will hit the obsticle
+        }// angle bigger then epsilon
+        sparks = sparks->next;
+    }
+    return 0;
+}
+
 
 
 void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
@@ -298,27 +319,60 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             
             fetchObjects(current_object, objects_amount);
 
-            // uint16_t x = 255;
-            // if( (x = findObject( (uint8_t)1,(uint16_t)5)) != (uint16_t)255){
-            //     printf("\nZnaleziony!: %u\n",x);
-            // }else{
-            //     printf("\nNie naleziony!: %u\n",x);
-                
-            // }
-            // AMCOM_Print(current_object, objects_amount);
-
-            printf("\n FOUND closest: %lu\n", findClosest(0, 1, 0));
             break;  
 
         case AMCOM_MOVE_REQUEST:
             printf("MOVE.request. Responding with MOVING\n");
 
-            AMCOM_MoveResponsePayload moveResponse;
-            force_move += 0.1;
+            enum {
+                PLAYER,
+                FOOD,
+                SPARK,
+                GLUE
+            };
 
-            moveResponse.angle = force_move;
+          
             
+            AMCOM_ObjectState * player = findObject(PLAYER, GameDetails->my_player);
+            assert(player);
+
+            AMCOM_ObjectState * food = NULL;      
+
+            while(1){
+                
+                food = findObject(FOOD, GameDetails->next );
+                assert(food);
+
+                if( ALG_GetDistance(player,food) <= EPSILON){ // assumption that food is eaten
+                    GameDetails->next++;
+                    continue;
+                }
+                
+                float angle_response =  ALG_GetAbsoluteAngle(player,food),
+                distance_responce = ALG_GetDistance(player, food);
+
+                if(ALG_SparkInWay(player, angle_response, distance_responce) ){ // if spark in the way, go for another food
+                    GameDetails->next++;
+                    food = NULL;
+                    continue;
+                }
+
+                break;
+            }
+
+
+            AMCOM_MoveResponsePayload moveResponse;
+      
+
+            float received_angle = ALG_Move(player, food);
+      
+            assert(received_angle != -1.0f);
+            moveResponse.angle = received_angle;
+            
+
             toSend = AMCOM_Serialize(AMCOM_MOVE_RESPONSE, &moveResponse, sizeof(moveResponse), buf);
+
+            
             break;
 
       
