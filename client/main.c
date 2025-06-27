@@ -15,18 +15,20 @@
 #define PLAYER_NAME "White power."
 #define PLAYER_MSG "bitches come and go."
 #define PLAYER_GONE "bullshit."
-#define EPSILON 10.0f
-#define EPSILON_DISTANCE 75.0f
-#define EPSILON_ANGLE 0.5f // 10 deg, 10 * 180 / PI = 0.1745
+
+
+
+#define EPSILON_DISTANCE 40.0f
+#define EPSILON_ANGLE 0.4f // 10 deg, 10 * 180 / PI = 0.1745
 #define CLUSTER_RADIUS 100.0f
 
-#define FOOD_TO_EAT_COEF 0.35
-
-
+#define FOOD_TO_EAT_COEF 0.4
+#define PI 3.141592
+#define BYPASS_ARG 255 // used once, value too big .. coś tam
 #define REQ_RESP_LOG 0
-#define ALGORITH_DETAILS_LOG 1
 
-float force_move = 12.0;
+#define ALGORITHM_DATA_LOG 0
+
 
 
 
@@ -97,18 +99,19 @@ ll_t* head_g = NULL; // ignore the glue, not worth the trouble
 typedef struct next_stop{
     float dist;
     float angle;
-    float x;
-    float y;
+    AMCOM_ObjectState * data;
 } next_stop_t;
 
 typedef struct GameDetails{
-    uint8_t total_players;
     uint8_t my_player;
-    uint8_t current_angle;
+    float current_angle;
     
+    
+    uint8_t current_stop;
     next_stop_t* next_stop;
     uint8_t * next_stop_visited;
     uint8_t next_stop_count;
+
 
     uint8_t players_c;
     uint8_t transistor_c;
@@ -123,15 +126,13 @@ typedef struct GameDetails{
 GameDetails_t * GameDetails = NULL;
 
 void GameDetailsInit(void){
-    GameDetails->current_angle = 0;
+    GameDetails->current_angle = 0.0f;
     GameDetails->my_player = 0;
-    GameDetails->total_players = 0;
+    GameDetails->current_stop  = 0;
    
-    // maybe init the next_top lists
     GameDetails->next_stop_count = 0;
     GameDetails->next_stop = NULL;
     GameDetails->next_stop_visited = NULL;
-
     GameDetails->next = 0;
 
     GameDetails->players_c = 0;
@@ -143,11 +144,21 @@ void GameDetailsInit(void){
 
 void NextStop_Init(void){
 
-    GameDetails->next_stop = (next_stop_t*)malloc(sizeof(next_stop_t) * GameDetails->next_stop_count);
+    if (GameDetails->next_stop != NULL){ // check if memory is set, if yes then clear it
+        free(GameDetails->next_stop);
+        GameDetails->next_stop  = NULL;
+    }
+    if (GameDetails->next_stop_visited != NULL){
+        free(GameDetails->next_stop_visited);
+        GameDetails->next_stop_visited = NULL;
+    }
+
+    GameDetails->next_stop = (next_stop_t*)malloc(sizeof(next_stop_t) * GameDetails->next_stop_count); // allocate new memory 
     assert(GameDetails->next_stop);
     GameDetails->next_stop_visited = (uint8_t*)calloc(GameDetails->next_stop_count,sizeof(uint8_t));
     assert(GameDetails->next_stop_visited);
 
+    GameDetails->next_stop->data = NULL;
 }
 
 void NextStop_Free(void){
@@ -219,12 +230,12 @@ AMCOM_ObjectState * findObject( uint8_t type, uint16_t num){
 
 void fetchObjects(AMCOM_ObjectState * state, uint8_t count){
     for(uint8_t i = 0; i< count; ++i){
-        ll_t* p = NULL;
+       
         switch(state[i].objectType){
-            case 0: p = head_p; pushNode(&head_p, &state[i]);   GameDetails->players_c++         ;break;
-            case 1: p = head_t; pushNode(&head_t, &state[i]);   GameDetails->transistor_c++      ;break;
-            case 2: p = head_s; pushNode(&head_s, &state[i]);   GameDetails->sparks_c++          ;break;
-            case 3: p = head_g; pushNode(&head_g, &state[i]);   GameDetails->glue_c++            ;break;
+            case 0:  pushNode(&head_p, &state[i]);   GameDetails->players_c++         ;break;
+            case 1:  pushNode(&head_t, &state[i]);   GameDetails->transistor_c++      ;break;
+            case 2:  pushNode(&head_s, &state[i]);   GameDetails->sparks_c++          ;break;
+            case 3:  pushNode(&head_g, &state[i]);   GameDetails->glue_c++            ;break;
         }
     }
 }
@@ -233,6 +244,7 @@ void fetchObjects(AMCOM_ObjectState * state, uint8_t count){
     Get (x,y) coordinates from (-500,500) to (0, 1000)
     Doesn't change the object itself, puts the transposed data into func parameters 'x' and 'y'
 */
+
 void ALG_Transpose(AMCOM_ObjectState * object, float * x, float * y){ //transpose from -500/500 to 0/1000
     *x = object->x + 500.0f;
     *y = object->y + 500.0f;
@@ -252,6 +264,7 @@ float ALG_GetDistance(AMCOM_ObjectState * object_origin,AMCOM_ObjectState * obje
                 );
 }
 
+
 float ALG_GetAbsoluteAngle(AMCOM_ObjectState * object_origin, AMCOM_ObjectState * object_dest){
 
     float distance_x = object_dest->x - object_origin->x;
@@ -262,8 +275,6 @@ float ALG_GetAbsoluteAngle(AMCOM_ObjectState * object_origin, AMCOM_ObjectState 
 }
 
 float ALG_Move(AMCOM_ObjectState * player, AMCOM_ObjectState * food){
-    float epsilon = 5.0f;
-
     if(player && food){
         float angle     = ALG_GetAbsoluteAngle( player,food );
         float distance  = ALG_GetDistance( player, food );
@@ -273,13 +284,16 @@ float ALG_Move(AMCOM_ObjectState * player, AMCOM_ObjectState * food){
     return -1.0f;
 }
 
-uint8_t ALG_SparkInWay(AMCOM_ObjectState * player, float food_angle, float food_distance){
+uint8_t ALG_SparkInWay(AMCOM_ObjectState * player, AMCOM_ObjectState * food){
     ll_t * sparks = head_s;
 
     while(sparks != NULL){
         
         float obsticle_angle = ALG_GetAbsoluteAngle(player, sparks->data);
         float obsticle_distance = ALG_GetDistance(player, sparks->data);
+
+        float food_angle = ALG_GetAbsoluteAngle(player,food);
+        float food_distance = ALG_GetDistance(player, food);
 
         if ( fabsf(food_angle -  obsticle_angle  ) < EPSILON_ANGLE ){
             if (obsticle_distance < food_distance)  return 1; // will hit the obsticle
@@ -309,8 +323,8 @@ RelativePosition_t* RelativePosition_Init(AMCOM_ObjectState* o){
 }
 
 void RelativePosition_free(RelativePosition_t* o){
-    // clearList(o->data);
-    o->data = NULL; // dont clear the list yet
+    
+    o->data = NULL; 
 
     free(o);
 }
@@ -330,7 +344,7 @@ uint8_t CountNodes(ll_t** head){
         count++;
         current = current->next;
     }
-    assert(count != 0);
+    
     return count;
 
 }
@@ -364,14 +378,7 @@ void printClusterNode(RelativePosition_t* node[], uint8_t count){
     }
 }
 
-typedef struct pos_xy_t{
-    float dist;
-    float angle;
-    float x;
-    float y;
-}pos_xy_t;
-
-
+typedef next_stop_t pos_xy_t;
 
 typedef struct node2{
     pos_xy_t * data;
@@ -409,10 +416,7 @@ cluster_list_t * createCluster(cluster_element_t * o){
     cluster_list_t* node = (cluster_list_t* )malloc( sizeof(cluster_list_t) );
     assert(node);
 
-    node->data = (cluster_element_t*)malloc(sizeof(cluster_element_t*));
-    
-    assert(node->data);
-    memcpy(node->data, o, sizeof(cluster_element_t));
+    node->data = o; // Poprawka: Po prostu przypisz wskaźnik, nie kopiuj danych.
     
     node->next = NULL;
     return node;
@@ -466,7 +470,7 @@ void reverseElementsList(cluster_element_t** head_ref) {
 
 // Główna funkcja, która odwraca listę klastrów oraz elementy wewnątrz każdego z nich
 void reverseClusterList(cluster_list_t** list_head_ref) {
-    assert(list_head_ref);
+    assert(&list_head_ref);
 
     // 1. Odwróć listę elementów w każdym klastrze
     cluster_list_t* current_cluster = *list_head_ref;
@@ -531,27 +535,49 @@ void calculateClustersPosition(ll_t** head, AMCOM_ObjectState * player, uint8_t 
         
         node[i] = RelativePosition_Init(current->data);
         node[i]->distance_to_origin = ALG_GetDistance(player, node[i]->data); // set the distance from the first element in linked list 'head' 
+        node[i]->data = node[i]->data;
         node[i]->angle_to_origin = ALG_GetAbsoluteAngle(player, node[i]->data);
         current = current->next;
-        // RelativePosition_Print(node[i]);
+        
     }
 
-    printf("Before");
-    printClusterNode(node, count);
+    printf("food position: received\n");
+    if(ALGORITHM_DATA_LOG)  printClusterNode(node, count);
+    
     sortClustersPosisions(node, count);
-    printf("After");
-    printClusterNode(node, count);
+
+    printf("food position: sorted\n");
+    if(ALGORITHM_DATA_LOG) printClusterNode(node, count);
 
     getClusters(node, count);
     
-    
-
-
+    // release memory
     for(uint8_t i = 0; i< count; ++i) RelativePosition_free(node[i]);
-    // sort the data 
-
-
 };
+
+
+void NextStop_addClusters(cluster_list_t** head){
+    uint8_t amount = GameDetails->next_stop_count;
+    assert(amount != 0);
+
+    uint8_t added_count = 0;
+    cluster_list_t* current_cluster = *head;
+
+     while (current_cluster != NULL && added_count < amount) {
+        cluster_element_t* current_element = current_cluster->data;
+
+        // Iteruj po elementach wewnątrz klastra
+        while (current_element != NULL && added_count < amount) {
+           
+            GameDetails->next_stop[added_count] = *(current_element->data);
+            
+            added_count++;
+            current_element = current_element->next;
+        }
+        current_cluster = current_cluster->next;
+    }
+
+}
 
 
 void getClusters(RelativePosition_t* nodes[], uint8_t count) {
@@ -566,8 +592,7 @@ void getClusters(RelativePosition_t* nodes[], uint8_t count) {
             pos_xy_t p_i = {
                 nodes[i]->distance_to_origin, 
                 nodes[i]->angle_to_origin,
-                nodes[i]->data->x,
-                nodes[i]->data->y
+                nodes[i]->data
             };
             pushClusterElement(&current_cluster_elements, &p_i);
             visited[i] = 1;
@@ -583,8 +608,7 @@ void getClusters(RelativePosition_t* nodes[], uint8_t count) {
                         pos_xy_t p_j = {
                             nodes[j]->distance_to_origin, 
                             nodes[j]->angle_to_origin,
-                            nodes[j]->data->x,
-                            nodes[j]->data->y,
+                            nodes[j]->data
 
                         };
                         pushClusterElement(&current_cluster_elements, &p_j);
@@ -594,42 +618,124 @@ void getClusters(RelativePosition_t* nodes[], uint8_t count) {
             }
 
             // 4. Po pętli 'j', cały klaster jest gotowy. Dodaj go do listy.
-            // NIE zwalniaj tutaj `current_cluster_elements`!
             pushCluster(&list, current_cluster_elements);
         }
     }
 
-    printf("Food Clusters found\n");
-    if(ALGORITH_DETAILS_LOG) printCluster(&list);
-    
+    printf("food clusters discovered (amount)\n");
+    if(ALGORITHM_DATA_LOG )   printCluster(&list);
     
     reverseClusterList(&list);
-    printf("Food Clusters sorted\n");
-    if(ALGORITH_DETAILS_LOG)  printCluster(&list);
+    printf("food clusters sorted (amount)\n");
 
-    // insert the calculated 
+    if(ALGORITHM_DATA_LOG)  printCluster(&list);
 
-    uint8_t amount_to_eat = 0;
-    if (GameDetails->total_players > 0) {
-        amount_to_eat = (GameDetails->transistor_c / GameDetails->total_players) * FOOD_TO_EAT_COEF;
-    }
-    // Make sure we try to eat at least one cluster if transistors are available
-    if (amount_to_eat == 0 && GameDetails->transistor_c > 0) {
-        amount_to_eat = 1;
-    }
+
+    uint8_t amount_to_eat = (GameDetails->players_c == 1) ? GameDetails->transistor_c  : floorf(GameDetails->transistor_c -   3 *GameDetails->players_c );
+   
 
     GameDetails->next_stop_count = amount_to_eat; 
     NextStop_Init();
     
-  
+    NextStop_addClusters(&list);
     
+    printf("next_moves added from food clusters (amount to eat: %u)\n", amount_to_eat);
+    if(ALGORITHM_DATA_LOG){
+        for(uint8_t i = 0; i< amount_to_eat; ++i){
+            printf("%d:(%f,%f)\n",i,GameDetails->next_stop[i].dist, GameDetails->next_stop[i].angle  );
+        }
+    }
 
-    // Pamiętaj, aby na końcu zwolnić całą listę klastrów, gdy nie będzie już potrzebna.
     clearClusterList(&list);
     free(visited);
 }
 
+uint8_t foodReached(AMCOM_ObjectState * player){
+    uint8_t food = GameDetails->current_stop;
+    
+    float xp = player->x, yp = player->y;
+    float xf = GameDetails->next_stop[food].data->x, yf = GameDetails->next_stop[food].data->y;
+    
+    float distance = (float)sqrt(  
+                (xp - xf ) * (xp - xf) + // (x_dest-x_origin)^2
+                (yp - yf) * (yp - yf)   
+                );
 
+    if( distance <= EPSILON_DISTANCE){ // assumption that food is eaten
+        
+        GameDetails->next_stop_visited[food] = 1; // set the flag, have it being noted as eaten.
+        return 1;               
+    }
+    return 0;
+}
+
+
+
+
+uint8_t inList(uint8_t element, const uint8_t arr[], uint8_t count){
+    for(uint8_t i = 0; i< count; ++i){
+        if (arr[i] == element){return 1;};
+    }
+    return 0;
+}
+
+
+
+
+uint8_t foodNext(const uint8_t excluded[], uint8_t count, AMCOM_ObjectState * player){ 
+    uint8_t food_current = GameDetails->current_stop;
+    
+    for (uint8_t i = 0; i < GameDetails->next_stop_count; ++i){
+   
+         if (GameDetails->next_stop_visited[i] == 0 && !inList(i, excluded, count)) {
+            
+            GameDetails->current_stop = i;
+            GameDetails->current_angle = ALG_GetAbsoluteAngle(player, GameDetails->next_stop[i].data);
+            
+            return 1; // Sukces, znaleziono nowy cel
+        }
+    }
+    return 0;
+}
+
+
+AMCOM_ObjectState * PlayerSearchByHP(ll_t** head, AMCOM_ObjectState * my_player, uint8_t type){
+    
+    uint8_t my_health =  my_player->hp;
+
+    AMCOM_ObjectState* theOne = NULL;
+    ll_t* current = *head;
+    if (current->next != NULL){ // if only one player, the while loop below causes crashes, hence the check
+        if (type == 255){ // highest
+            uint8_t higher = 0; 
+            while(current!=NULL){
+
+                if(current->data->hp > higher ){
+                    higher = current->data->hp;
+                    theOne = current->data;
+                }
+                current = current->next;
+            }
+        }else{
+            uint8_t lower = my_health; 
+            while(current!=NULL){
+
+                if(current->data->hp < lower ){
+                    lower = current->data->hp;
+                    theOne = current->data;
+                }
+                current = current->next;
+            }
+        }
+    
+        if (my_player == theOne){  
+            theOne = NULL;
+        }
+    }else{ 
+        theOne = NULL;
+    }
+    return theOne;
+}
 
 void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
     uint8_t buf[AMCOM_MAX_PACKET_SIZE];              // buffer used to serialize outgoing packets
@@ -649,18 +755,15 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             break;
     
         case AMCOM_NEW_GAME_REQUEST:
-            
             if (REQ_RESP_LOG) printf("NEW_GAME.request. Responding with %s.\n", PLAYER_MSG);        
             
             AMCOM_NewGameResponsePayload newGameResponse;
             sprintf(newGameResponse.helloMessage, PLAYER_MSG);
 
-          
             AMCOM_NewGameRequestPayload * ptr = (AMCOM_NewGameRequestPayload  *)packet->payload;
             
             GameDetails->my_player = ptr->playerNumber;
-            GameDetails->total_players = ptr->numberOfPlayers;
-
+            GameDetails->players_c = ptr->numberOfPlayers;
 
             toSend = AMCOM_Serialize(AMCOM_NEW_GAME_RESPONSE, &newGameResponse, sizeof(newGameResponse), buf);
             break;
@@ -670,12 +773,13 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
             AMCOM_GameOverResponsePayload gameOverResponse;
             sprintf(gameOverResponse.endMessage, PLAYER_GONE);
             
-            
+            // free lists and clear the memory
             clearList(&head_p);
             clearList(&head_t);
             clearList(&head_s);
             clearList(&head_g);
 
+            NextStop_Free();
             
             
             toSend = AMCOM_Serialize(AMCOM_GAME_OVER_RESPONSE, &gameOverResponse, sizeof(gameOverResponse), buf);
@@ -687,81 +791,129 @@ void amPacketHandler(const AMCOM_Packet* packet, void* userContext) {
 
             clearList(&head_p); // players are allways sent
 
-
             uint8_t objects_amount = packet->header.length / (uint8_t)sizeof(AMCOM_ObjectState);//  packet size-> 12
             AMCOM_ObjectState * current_object = (AMCOM_ObjectState *)packet->payload;
             
-            fetchObjects(current_object, objects_amount);
-
+            fetchObjects(current_object, objects_amount); // handle packets with data
             break;  
 
         case AMCOM_MOVE_REQUEST:
             if (REQ_RESP_LOG) printf("MOVE.request. Responding with MOVING\n");
             
-            enum {
-                PLAYER,
-                FOOD,
-                SPARK,
-                GLUE
-            };
-
             AMCOM_MoveRequestPayload * gameRound = (AMCOM_MoveRequestPayload *)packet->payload; 
-            printf("Round: %llu \n", gameRound->gameTime);
 
-            AMCOM_ObjectState * player = findObject(PLAYER, GameDetails->my_player);
-            AMCOM_ObjectState * food_origin = findObject(FOOD,0);
-            
+            AMCOM_ObjectState * player = findObject(0, GameDetails->my_player); // 0 means player type object
             assert(player);
 
+            // uint8_t *blocked_food = (uint8_t*)calloc( GameDetails->next_stop_count, sizeof(uint8_t));
+            
+            uint8_t blocked_food[GameDetails->next_stop_count];
+
+            for(uint8_t i = 0; i< GameDetails->next_stop_count; ++i){
+                blocked_food[i] = (uint8_t)BYPASS_ARG;
+            }
+
+            uint8_t blocked_food_index = 0;
             
 
-            if ( gameRound->gameTime == 0 ){
+
+            if ( gameRound->gameTime == 0 ){ // game initialization, run only once per new game
+                printf("Round: %llu \n", gameRound->gameTime);
                 
-                calculateClustersPosition(&head_t, player, CountNodes(&head_t) );
+                GameDetails->transistor_c   = CountNodes(&head_t);
+                GameDetails->glue_c         = CountNodes(&head_g);
+                GameDetails->sparks_c       = CountNodes(&head_s);
+                GameDetails->players_c      = CountNodes(&head_p);
+
+                calculateClustersPosition(&head_t, player, GameDetails->transistor_c ); // get the elements to eat
+                
+                printf("cipa\n");
+                foodNext(blocked_food, GameDetails->next_stop_count,player); 
+                printf("dupa\n");
+
+                printf("-----------------------------------\n");
+                printf("Round: %llu: Foodie mode activated\n", gameRound->gameTime);
+                printf("-----------------------------------\n");
                 
             }
 
-            AMCOM_ObjectState * food = NULL;      
-
-            while(1){
-                
-                food = findObject(FOOD, GameDetails->next );
-                assert(food); // when next is bigger then the amount of possible food to eat, assertion fails due to skipping the valid food.
-
-                if( ALG_GetDistance(player,food) <= EPSILON){ // assumption that food is eaten
-                    GameDetails->next++;
-                    continue;
+            if (GameDetails->current_stop == 255){ // predator mode
+                AMCOM_ObjectState* theEnemy = NULL;
+                theEnemy = PlayerSearchByHP(&head_p, player, 0); // find highest health
+                if(theEnemy == NULL){
+                    GameDetails->current_stop == 254;
                 }
+                GameDetails->current_angle = ALG_Move(player, theEnemy);
                 
-                float angle_response =  ALG_GetAbsoluteAngle(player,food),
-                distance_responce = ALG_GetDistance(player, food);
 
-                if(ALG_SparkInWay(player, angle_response, distance_responce) ){ // if spark in the way, go for another food
-                    GameDetails->next++;
-                    food = NULL;
-                    continue;
-                }
 
-                break;
+            }else if(GameDetails->current_stop == 254){
+                
+                GameDetails->current_angle = -PI + (float)rand() / RAND_MAX * (2 * PI);
+
+
+            } else{ // foodie mode
+
+                uint8_t is_reached = foodReached(player);
+                uint8_t is_blocked = ALG_SparkInWay(player, GameDetails->next_stop[GameDetails->current_stop ].data);
+
+                if (is_reached || is_blocked) {
+                    if (is_reached) printf("Food (nr %u) found. Searching for another\n", GameDetails->current_stop);
+                    if (is_blocked) printf("Food (#%u) blocked. Searching for another.\n", GameDetails->current_stop);
+                    
+                    
+                    blocked_food[blocked_food_index++] = GameDetails->current_stop; // add the blocked element to the list of blocked elements
+                   
+                    uint8_t max_loops_iters = 0; // check for contuugnous iteration between constantly blocked foods.
+                    while (max_loops_iters < 5) {
+                     
+                        if (foodNext(blocked_food, GameDetails->next_stop_count, player)) { // Znaleziono potencjalny nowy cel
+                            if (ALG_SparkInWay(player, GameDetails->next_stop[GameDetails->current_stop].data)) { // food is blocked, find another one
+                                
+                                blocked_food[ blocked_food_index++] = GameDetails->current_stop;
+                                
+                                max_loops_iters++;
+                                continue;
+                            } else { // new, nonblocked food found
+                                printf("Food (#%u) found. Setting the angle.\n", GameDetails->current_stop);
+                                
+                                blocked_food_index = 0;
+                                for(uint8_t i = 0; i< GameDetails->next_stop_count; ++i){
+                                    blocked_food[i] = (uint8_t)BYPASS_ARG;
+                                }
+
+                                break;
+                            }
+                        } else { // improvise mod
+                            if(GameDetails->players_c == 1){
+                                GameDetails->current_stop = 254;
+                                printf("-----------------------------------\n");
+                                printf("Round: %llu: Improvising mode activated\n", gameRound->gameTime);
+                                printf("-----------------------------------\n");
+
+                            }else{// no more food to eat, time for brutal anthropophagy
+                                GameDetails->current_stop = 255;
+                                printf("-----------------------------------\n");
+                                printf("Round: %llu: Devourerer mode activated\n", gameRound->gameTime);
+                                printf("-----------------------------------\n");
+
+                            }
+
+                            break;
+                        }
+                        max_loops_iters++;
+                    }
+                    // max while loops reached, changing state to killer
+                   
+
+                } 
             }
 
 
             AMCOM_MoveResponsePayload moveResponse;
-      
-
-            float received_angle = ALG_Move(player, food);
-      
-            assert(received_angle != -1.0f);
-            moveResponse.angle = received_angle;
-            
-
+            moveResponse.angle = GameDetails->current_angle;
             toSend = AMCOM_Serialize(AMCOM_MOVE_RESPONSE, &moveResponse, sizeof(moveResponse), buf);
-
-            
             break;
-
-
-
     }
 
 	// if there is something to send back - do it
@@ -785,6 +937,7 @@ int main(int argc, char **argv) {
     GameDetails = (GameDetails_t*)malloc(sizeof(GameDetails_t));
     GameDetailsInit();
 
+    srand(56473892);
 
 
     if (REQ_RESP_LOG) {
@@ -881,6 +1034,7 @@ int main(int argc, char **argv) {
 
     // No longer need the socket
     closesocket(ConnectSocket);
+    free(GameDetails);
     // Clean up
     WSACleanup();
 

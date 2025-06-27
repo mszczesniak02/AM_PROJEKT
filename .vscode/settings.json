@@ -4,6 +4,7 @@
         "windows.h": "c",
         "compare": "c",
         "cstdlib": "c",
-        "type_traits": "c"
+        "type_traits": "c",
+        "cmath": "c"
     }
 }
