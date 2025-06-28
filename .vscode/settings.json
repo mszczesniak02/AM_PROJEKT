@@ -5,6 +5,10 @@
         "compare": "c",
         "cstdlib": "c",
         "type_traits": "c",
-        "cmath": "c"
+        "cmath": "c",
+        "amcom_packets.h": "c",
+        "logics.h": "c",
+        "structures.h": "c",
+        "stdlib.h": "c"
     }
 }
