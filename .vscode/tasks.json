@@ -8,7 +8,7 @@
                 "-fdiagnostics-color=always",
                 "-g",
                 "${file}",
-                "-o",
+                "-o -lws2_32",
                 "${fileDirname}\\${fileBasenameNoExtension}.exe"
             ],
             "options": {

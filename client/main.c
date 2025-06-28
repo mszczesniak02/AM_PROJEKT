@@ -110,8 +110,12 @@ int main(int argc, char **argv) {
         printf("Connected to game server\n");
     }
 
+   
+
     AMCOM_Receiver amReceiver;
     AMCOM_InitReceiver(&amReceiver, amPacketHandler, &ConnectSocket);
+    
+    
 
     // Receive until the peer closes the connection
     do {
@@ -130,9 +134,14 @@ int main(int argc, char **argv) {
 
     free(GameDetails);
     // No longer need the socket
+    free(head_object);
+    free(head_player);
+    free(ALG_GameDetails);
+
     closesocket(ConnectSocket);
     // Clean up
     WSACleanup();
+
 
     return 0;
 }

@@ -2,6 +2,7 @@
     "files.associations": {
         "*.dbclient-js": "javascript",
         "windows.h": "c",
+<<<<<<< HEAD
         "compare": "c",
         "cstdlib": "c",
         "type_traits": "c",
@@ -10,5 +11,8 @@
         "logics.h": "c",
         "structures.h": "c",
         "stdlib.h": "c"
+=======
+        "stdio.h": "c"
+>>>>>>> main
     }
 }
