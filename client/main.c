@@ -134,9 +134,9 @@ int main(int argc, char **argv) {
 
     free(GameDetails);
     // No longer need the socket
-    free(head_object);
-    free(head_player);
-    free(ALG_GameDetails);
+    free(head_p);
+    free(head_t);
+    free(GameDetails);
 
     closesocket(ConnectSocket);
     // Clean up
